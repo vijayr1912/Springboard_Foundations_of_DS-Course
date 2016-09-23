@@ -40,7 +40,7 @@ workData = myData
 
 # TASK 1 - Clean up brand names
 # VIJAY - Difficult task as the company names are not only different in case but have mixed casing and spelling mistakes
-#           Used a third party library RecordLinkage to use a function that computes closest resembling word by graph algorithm
+#           Used a third party package RecordLinkage to use a function that computes closest resembling word by graph algorithm
 # Question - Can dplyr be used to simplify this??
 
 # function to find nearest match for each company name
@@ -60,7 +60,6 @@ standardizeCompanyNames <- function(companyName) {
         "unilever"
     }
 }
-#lapply(exp$company_test, double)
 workData$company <- lapply(workData$company, standardizeCompanyNames)
 # Unlist the company name column to write to csv
 workData$company <- unlist(workData$company, use.names = FALSE)
