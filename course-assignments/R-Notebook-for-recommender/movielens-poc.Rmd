@@ -1,0 +1,73 @@
+---
+title: "Building a Movie Recommendation System using R- Recommendelab package"
+author: "Vijay Raghunath, mentored by Amit Dingare"
+date: "November, 2016"
+output: html_notebook
+---
+
+## Project Overview
+
+In this project, we develop a recommender system for recommending movies for the MovieLens database.
+
+Initially the recommender system will be build using the colloborative filtering recommender (CFR) algorithm.
+
+The basic idea of CFR systems is that, if two users share the same interests in the past, e.g. they liked the same book or the same movie, they will also have similar tastes in the future. If, for example, user A and user B have a similar purchase history and user A recently bought a book that user B has not yet seen, the basic idea is to propose this book to user B.
+
+The collaborative filtering approach considers only user preferences and does not take into account the features or contents of the items (books or movies) being recommended.
+
+## UML class diagram for package recommenderlab
+image: ![](recommenderlab-UML.png)
+
+## Used Libraries
+
+The following libraries were used in this project:
+
+```{r libs, warning=FALSE, error=FALSE, message=FALSE}
+library(recommenderlab)
+library(ggplot2)
+library(tidyr)
+library(data.table)
+```
+
+## Dataset
+
+The datasets for this project can be downloaded from the following site:
+http://grouplens.org/datasets/movielens/latest.
+
+There are two sets of data having different number of observations –
+
+1. Small dataset - It contains 105339 ratings and 6138 tag applications across 10329 movies. These data were created by 668 users between April 03, 1996 and January 09, 2016. 
+
+2. Large dataset- It contains 22884377 ratings and 586994 tag applications across 34208 movies. These data were created by 247753 users between January 09, 1995 and January 29, 2016.
+
+For initial model building and validation, the smaller dataset is used.
+
+The data are contained in four files: links.csv, movies.csv, ratings.csv and tags.csv. 
+
+A brief description of the data files is as below - 
+
+File Name | File Description
+------------- | -------------
+ratings.csv | All ratings are contained in the file `ratings.csv`. Each line of this file after                  the header row represents one rating of one movie by one user, and has the                       following format: `userId, movieId, rating, timestamp`.
+movies.csv | Movie information is contained in the file `movies.csv`. Each line of this file                 after the header row represents one movie, and has the following format:                         `movieId, title, genres`. Movie titles are entered manually or imported from                     <https://www.themoviedb.org/>, and include the year of release in parentheses.Errors             and inconsistencies may exist in these titles.
+links.csv | Identifiers that can be used to link to other sources of movie data are contained in             the file `links.csv`. Each line of this file after the header row represents one                 movie, and has the following format: `movieId, imdbId, tmdbId`.
+tags.csv | All tags are contained in the file `tags.csv`. Each line of this file after the header             row represents one tag applied to one movie by one user, and has the following                   format: `userId, movieId, tag, timestamp`.
+
+We only use the files movies.csv and ratings.csv to build a recommendation system. These files are used to build the user item ratings matrix, needed by the colloborative algorithms that are available with the *Recommenderlab* package.
+
+```{r data_load, warning=FALSE, error=FALSE, echo=FALSE}
+movies <- read.csv("data/movies.csv",stringsAsFactors=FALSE)
+ratings <- read.csv("data/ratings.csv")
+```
+
+A summary of *movies* is given below, together with several first rows of a dataframe:
+```{r mov_summ, warning=FALSE, error=FALSE, message=FALSE}
+summary(movies)
+head(movies)
+```
+
+And here is a summary and a head of *ratings*:
+```{r rat_summ, warning=FALSE, error=FALSE, message=FALSE}
+summary(ratings)
+head(ratings)
+```
