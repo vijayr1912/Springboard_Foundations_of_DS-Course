@@ -1,5 +1,5 @@
 ---
-title: "Building a Movie Recommendation System using R- Recommendelab package"
+title: "Building a Movie Recommendation System using R- Recommenderlab package"
 author: "Vijay Raghunath, mentored by Amit Dingare"
 date: "November, 2016"
 output: html_notebook
@@ -17,6 +17,36 @@ The collaborative filtering approach considers only user preferences and does no
 
 ## UML class diagram for package recommenderlab
 image: ![](recommenderlab-UML.png)
+
+By using the algorithms available in Recommenderlab package, we can achieve 2-fold purpose:
+
+* Predict the ratings for the movies that the user has not seen
+* After having predicted all the ratings for the user, we can make a top-N recommendation for the users. This top-N recommendation list can be further drilled down for the genre preferred by the user.
+
+### Recommenderlab Infrastructure
+The package uses the abstract ratingMatrix to provide a common interface for rating data.
+ratingMatrix implements many methods typically available for matrix-like objects.
+For example, dim(), dimnames(), colCounts(), rowCounts(), colMeans(), rowMeans(), colSums()
+and rowSums(). Additionally sample() can be used to sample from users (rows) and image()
+produces an image plot.
+
+For ratingMatrix we provide two concrete implementations realRatingMatrix and
+binaryRatingMatrix to represent different types of rating matrices.
+ 
+* realRatingMatrix - Implements a rating matrix with real valued ratings stored in sparse format defined in package Matrix. Sparse matrices in Matrix typically do not store 0s explicitly, however for realRatingMatrix we use these sparse matrices such that instead of 0s, NAs are not explicitly stored.
+
+* binaryRatingMatrix - implements a 0-1 rating matrix using the implementation of itemMatrix
+defined in package arules. itemMatrix stores only the ones and internally uses a sparse rep-
+resentation from package Matrix. With this class structure recommenderlab can be easily
+extended to other forms of rating matrices with different concepts for efficient storage in the
+future.
+
+### Exploring Parameters of Recommendation Models
+```{r}
+recommender_models <- recommenderRegistry$get_entries(dataType = "realRatingMatrix")
+names(recommender_models)
+lapply(recommender_models, "[[", "description")
+```
 
 ## Used Libraries
 
@@ -71,3 +101,5 @@ And here is a summary and a head of *ratings*:
 summary(ratings)
 head(ratings)
 ```
+
+
