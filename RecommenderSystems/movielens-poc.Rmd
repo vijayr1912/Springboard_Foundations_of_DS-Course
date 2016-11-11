@@ -15,6 +15,17 @@ The basic idea of CFR systems is that, if two users share the same interests in 
 
 The collaborative filtering approach considers only user preferences and does not take into account the features or contents of the items (books or movies) being recommended.
 
+## Used Libraries
+
+The following libraries were used in this project:
+
+```{r libs, warning=FALSE, error=FALSE, message=FALSE}
+library(recommenderlab)
+library(ggplot2)
+library(tidyr)
+library(data.table)
+```
+
 ## UML class diagram for package recommenderlab
 image: ![](recommenderlab-UML.png)
 
@@ -48,16 +59,7 @@ names(recommender_models)
 lapply(recommender_models, "[[", "description")
 ```
 
-## Used Libraries
 
-The following libraries were used in this project:
-
-```{r libs, warning=FALSE, error=FALSE, message=FALSE}
-library(recommenderlab)
-library(ggplot2)
-library(tidyr)
-library(data.table)
-```
 
 ## Dataset
 
@@ -101,5 +103,206 @@ And here is a summary and a head of *ratings*:
 summary(ratings)
 head(ratings)
 ```
+
+## Data Pre-processing
+
+### Extract a list of genres
+Using __one-hot encoding__ to create a matrix of corresponding genres for each movie. This will help us to generate the list of recommendations for movies based on genres preferred by the user.
+Even if we do not use the matrix to give genre based recommendation, we will be needing it to find similarities between users for the rating matrix.
+```{r}
+genres <- as.data.frame(movies$genres, stringsAsFactors=FALSE)
+
+genres2 <- as.data.frame(tstrsplit(genres[,1], '[|]', 
+                                   type.convert=TRUE), 
+                         stringsAsFactors=FALSE)
+colnames(genres2) <- c(1:10)
+
+genre_list <- c("Action", "Adventure", "Animation", "Children", 
+                "Comedy", "Crime","Documentary", "Drama", "Fantasy",
+                "Film-Noir", "Horror", "Musical", "Mystery","Romance",
+                "Sci-Fi", "Thriller", "War", "Western") # we have 18 genres in total
+
+genre_matrix <- matrix(0,10330,18) #empty matrix, 10330=no of movies+1, 18=no of genres
+genre_matrix[1,] <- genre_list #set first row to genre list
+colnames(genre_matrix) <- genre_list #set column names to genre list
+
+#iterate through matrix
+for (i in 1:nrow(genres2)) {
+  for (c in 1:ncol(genres2)) {
+    genmat_col = which(genre_matrix[1,] == genres2[i,c])
+    genre_matrix[i+1,genmat_col] <- 1
+  }
+}
+
+ #remove first row, which was the genre list
+genre_matrix2 <- as.data.frame(genre_matrix[-1,], stringsAsFactors=FALSE)
+for (c in 1:ncol(genre_matrix2)) {
+  genre_matrix2[,c] <- as.integer(genre_matrix2[,c])  #convert from characters to integers
+} 
+
+```
+```{r rat_genre_matric, warning=FALSE, error=FALSE, message=FALSE}
+summary(genre_matrix2)
+head(genre_matrix2)
+```
+
+
+```{r search_genres, warning=FALSE, error=FALSE, echo=FALSE}
+search_matrix <- cbind(movies[,1:2], genre_matrix2)
+head(search_matrix)
+```
+It is seen from the ratings matrix above that each movie can correspond to one or more genres.
+
+### Converting ratings matrix in a proper format
+
+In order to use the ratings data for building a recommendation engine with *recommenderlab*, convert rating matrix into a sparse matrix of type *realRatingMatrix*.
+
+```{r rat_mat, warning=FALSE, error=FALSE, echo=FALSE}
+ratingmat <- dcast(ratings, userId~movieId, value.var = "rating", na.rm=FALSE)
+ratingmat <- as.matrix(ratingmat[,-1]) #remove userIds
+
+#Convert rating matrix into a recommenderlab sparse matrix
+ratingmat <- as(ratingmat, "realRatingMatrix")
+```
+668 x 10325 rating matrix of class 'realRatingMatrix' with 105339 ratings.
+<!-- ### Synchronize dimensions of matrices (???) -->
+
+<!-- ```{r mat_dims, warning=FALSE, error=FALSE} -->
+<!-- #Remove rows that are not rated from movies dataset -->
+<!-- movieIds <- length(unique(movies$movieId)) #10329 -->
+<!-- ratingmovieIds <- length(unique(ratings$movieId)) #10325 -->
+<!-- movies2 <- movies[-which((movies$movieId %in% ratings$movieId) == FALSE),] -->
+<!-- rownames(movies2) <- NULL -->
+
+<!-- #Remove rows that are not rated from genre_matrix2 -->
+<!-- genre_matrix3 <- genre_matrix2[-which((movies$movieId %in% ratings$movieId) == FALSE),] -->
+<!-- rownames(genre_matrix3) <- NULL -->
+<!-- ``` -->
+
+## Explore values of movies ratings
+```{r rate_values, warning=FALSE, error=FALSE}
+vector_ratings <- as.vector(ratingmat@data)
+unique(vector_ratings) # what are unique values of ratings
+
+table_ratings <- table(vector_ratings) # what is the count of each rating value
+table_ratings
+```
+There are 11 unique score values. The lower values mean lower ratings and vice versa.
+
+### Distribution of the ratings
+
+According to the documentation, a rating equal to 0 represents a missing value, hence it is removed from the dataset before visualizing the results.
+```{r}
+ # rating == 0 are NA values
+vector_ratings <- vector_ratings[vector_ratings != 0]
+vector_ratings <- factor(vector_ratings)
+
+qplot(vector_ratings) + ggtitle("Distribution of the ratings")
+```
+There are less low (less than 3) rating scores, the majority of movies are rated with a score of 3 or higher. The most common rating is 4.
+
+### Number of views of the top movies
+```{r  top_no, warning=FALSE, error=FALSE, echo=FALSE}
+views_per_movie <- colCounts(ratingmat) # count views for each movie
+
+table_views <- data.frame(movie = names(views_per_movie),
+                          views = views_per_movie) # create dataframe of views
+table_views <- table_views[order(table_views$views, 
+                                 decreasing = TRUE), ] # sort by number of views
+table_views$title <- NA
+for (i in 1:10325){
+  table_views[i,3] <- as.character(subset(movies, 
+                                         movies$movieId == table_views[i,1])$title)
+}
+
+table_views[1:6,]
+
+ggplot(table_views[1:6, ], aes(x = title, y = views)) +
+  geom_bar(stat="identity") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+ggtitle("Number of views of the top movies")
+
+```
+From the plot, it can be seen that "Pulp Fiction (1994)" is the most viewed movie, exceeding the second-most-viewed "Forrest Gump (1994)" by 14 views.
+
+### Distribution of the average movie rating
+```{r avg_rat, warning=FALSE, error=FALSE, echo=FALSE, message=FALSE}
+average_ratings <- colMeans(ratingmat)
+
+qplot(average_ratings) + 
+  stat_bin(binwidth = 0.1) +
+  ggtitle("Distribution of the average movie rating")
+```
+The distribution above shows the distribution of the average movie rating. The highest value is around 3, and there are a few movies whose rating is either 1 or 5. Probably, the reason is that these movies received a rating from a few people only, so shouldn't take them into account.
+
+Assigning a threshold value of minimum of 50 views per user, create a subset of only relevant movies. 
+```{r}
+average_ratings_relevant <- average_ratings[views_per_movie > 50] 
+qplot(average_ratings_relevant) + 
+  stat_bin(binwidth = 0.1) +
+  ggtitle(paste("Distribution of the relevant average ratings"))
+```
+
+The second image above shows the distribution of the relevant average ratings. All the rankings are between 2.16 and 4.45. As expected, the extremes were removed. The highest value changes, and now it is around 4.
+
+
+### Heatmap of the rating matrix
+Visualizing the whole matrix of ratings by building a heat map whose colors represent the ratings. Each row of the matrix corresponds to a user, each column to a movie, and each cell to its rating.
+```{r heat_rate, warning=FALSE, error=FALSE, echo=FALSE}
+image(ratingmat, main = "Heatmap of the rating matrix")
+
+```
+
+Since there are too many users and items, the heatmap chart is hard to read hard as it has too many dimensions.
+
+```{r}
+image(ratingmat[1:20, 1:25], main = "Heatmap of the first 20 rows and 25 columns")
+```
+Zooming in on the first rows and columns, it can be observed that the some users saw more movies than the others.
+
+To avoid this user bias, an efficient recommendation algorithm should select the most relevant users (the users who have seen many movies) and movies (the movies that have been seen by many users). To select the most relevant users and movies, the following steps are followed -
+
+1. Determine the minimum number of movies per user.
+2. Determine the minimum number of users per movie.
+3. Select the users and movies matching these criteria.
+
+```{r heat_relev, warning=FALSE, error=FALSE, echo=FALSE}
+min_n_movies <- quantile(rowCounts(ratingmat), 0.99)
+min_n_users <- quantile(colCounts(ratingmat), 0.99)
+print("Minimum number of movies per user:")
+min_n_movies
+print("Minimum number of users per movie:")
+min_n_users
+
+image(ratingmat[rowCounts(ratingmat) > min_n_movies,
+                 colCounts(ratingmat) > min_n_users], 
+main = "Heatmap of the top users and movies")
+```
+From above heatmap the following points can be observed - 
+
+* Of the users having watched more movies, most of them have seen all the top movies.
+* Some columns of the heatmap are darker than the others, meaning that these columns represent the highest-rated movies.
+* Conversely, darker rows represent users giving higher ratings.
+
+Because of the above factors, it would be a good to normalize the data before building the model.
+
+## Data Preparation
+
+The data preparation process consists of the following steps:
+
+1. Select the relevant data.
+2. Normalize the data.
+3. Binarize the data.
+
+In order to select the most relevant data, the minimum number of users per rated movie is defined as 50 and the minimum views number per movie as 50:
+
+```{r rel_data, warning=FALSE, error=FALSE, echo=FALSE}
+ratings_movies <- ratingmat[rowCounts(ratingmat) > 50,
+                             colCounts(ratingmat) > 50]
+```
+420 x 447 rating matrix of class ‘realRatingMatrix’ with 38341 ratings.
+```{r}
+
+Such a selection of the most relevant data contains 420 users and 447 movies, compared to previous 668 users and 10325 movies in the total dataset.
 
 
