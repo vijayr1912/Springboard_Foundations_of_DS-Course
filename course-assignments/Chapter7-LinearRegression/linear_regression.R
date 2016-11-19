@@ -31,4 +31,4 @@ mod.en.metro.by.waste <- lm(energy ~ metro * waste, data = states.data)
 mod.en.region <- lm(energy ~ metro * waste + region, data = states.data)
 anova(mod.en.region)
 
-plot(states.en.met.pop.wst)
+plot(mod.en.metro.by.waste)
