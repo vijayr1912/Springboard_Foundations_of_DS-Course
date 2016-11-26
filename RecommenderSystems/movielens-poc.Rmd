@@ -530,3 +530,344 @@ Most of the movies have been recommended only a few times, and a few movies have
 IBCF recommends items on the basis of the similarity matrix. It's an eager-learning model, that is, once it's built, it doesn't need to access the initial data. For each item, the model stores the k-most similar, so the amount of information is small once the model is built. This is an advantage in the presence of lots of data.
 
 In addition, this algorithm is efficient and scalable, so it works well with big rating matrices.
+
+## USER-based Collaborative Filtering Model
+
+Now, we will use the user-based approach to develop a recommender engine. According to this approach, given a new user, its similar users are first identified. Then, the top-rated items rated by
+similar users are recommended. 
+
+For each new user, these are the steps:
+
+1. Measure how similar each user is to the new one. Like IBCF, popular similarity measures are correlation and cosine.
+2. Identify the most similar users. The options are:
+
+   * Take account of the top k users (k-nearest_neighbors)
+   * Take account of the users whose similarity is above a defined threshold
+   
+3. Rate the movies rated by the most similar users. The rating is the average
+rating among similar users and the approaches are:
+
+   * Average rating
+   * Weighted average rating, using the similarities as weights
+   
+4. Pick the top-rated movies.
+
+
+## Building the recommendation system:
+
+First check the default parameters of UBCF model. Here, *nn* is a number of similar users, and *method* is a similarity function, which is *cosine* by default. We will build a recommender model leaving the parameters to their defaults and using the training set.
+
+```{r build_UBCF, warning=FALSE, message=FALSE, echo=FALSE}
+recommender_models <- recommenderRegistry$get_entries(dataType ="realRatingMatrix")
+recommender_models$UBCF_realRatingMatrix$parameters
+recc_model <- Recommender(data = recc_data_train, method = "UBCF")
+recc_model
+model_details <- getModel(recc_model)
+model_details$data
+```
+Recommender of type ‘UBCF’ for ‘realRatingMatrix’ 
+learned using 332 users.
+332 x 447 rating matrix of class ‘realRatingMatrix’ with 29519 ratings.
+Normalized using center on rows.
+
+## Applying the recommender model on the test set
+
+In the same way as the IBCF, we now determine the top ten recommendations for each new user in the test set.
+```{r apply_UBCF, warning=FALSE, message=FALSE, echo=FALSE}
+n_recommended <- 10
+recc_predicted <- predict(object = recc_model,
+                          newdata = recc_data_test, 
+                          n = n_recommended) 
+recc_predicted
+```
+## Explore results
+
+Let's take a look at the first four users:
+```{r explore_UBCF}
+recc_matrix <- sapply(recc_predicted@items, 
+                      function(x){ as.integer(colnames(ratings_movies)[x]) })
+recc_matrix[, 1:4]
+```
+The above matrix contain *movieId* of each recommended movie (rows) for the first four users (columns) in our test dataset.
+
+We now compute how many times each movie got recommended and build the related frequency histogram:
+```{r}
+number_of_items <- factor(table(recc_matrix))
+
+chart_title <- "Distribution of the number of items for UBCF"
+qplot(number_of_items) + ggtitle(chart_title)
+```
+
+Compared with the IBCF, the distribution has a longer tail. This means that there are some movies that are recommended much more often than the others. The maximum is more than 30, compared to 10-ish for IBCF.
+
+```{r top_titles_UBCF, warning=FALSE, message=FALSE, echo=FALSE}
+number_of_items_sorted <- sort(number_of_items, decreasing = TRUE)
+number_of_items_top <- head(number_of_items_sorted, n = 4)
+table_top <- data.frame(as.integer(names(number_of_items_top)), number_of_items_top)
+
+for (i in 1:4){
+  table_top[i,1] <- as.character(subset(movies, 
+                                         movies$movieId == table_top[i,1])$title)
+}
+colnames(table_top) <- c("Movie title", "No of items")
+head(table_top)
+```
+
+Comparing the results of UBCF with IBCF helps find some useful insight on different algorithms. UBCF needs to access the initial data. Since it needs to keep the entire database in memory, it doesn't work well in the presence of a big rating matrix. Also, building the similarity matrix requires a lot of computing power and time.
+
+However, UBCF's accuracy is proven to be slightly more accurate than IBCF (refer to next section), so it's a good option if the dataset is not too big.
+
+## Evaluating the Recommender Systems
+
+There are a few options to choose from when deciding to create a recommendation engine. In order to compare their performances and choose the most appropriate model, we follow these steps:
+
+* Prepare the data to evaluate performance
+* Evaluate the performance of some models
+* Choose the best performing models
+* Optimize model parameters
+
+## Preparing the data to evaluate models
+
+We need two trainig and testing data to evaluate the model. There are several methods to create them: 1) splitting the data into training and test sets, 2) bootstrapping, 3) using k-fold.
+
+### Splitting the data
+
+Splitting the data into training and test sets is often done using a 80/20 proportion.
+```{r  eval_split, warning=FALSE, message=FALSE, echo=FALSE}
+percentage_training <- 0.8
+```
+For each user in the test set, we need to define how many items to use to generate
+recommendations. For this, first check the minimum number of items rated by users to be sure there will be no users with no items to test.
+
+```{r  split_parameters, message=FALSE, warning=FALSE}
+items_to_keep <- 5 #number of items to generate recommendations
+rating_threshold <- 3 # threshold with the minimum rating that is considered good
+n_eval <- 1 #number of times to run evaluation
+
+eval_sets <- evaluationScheme(data = ratings_movies, 
+                              method = "split",
+                              train = percentage_training, 
+                              given = items_to_keep, 
+                              goodRating = rating_threshold, 
+                              k = n_eval) 
+eval_sets
+
+getData(eval_sets, "train") # training set
+getData(eval_sets, "known") # set with the items used to build the recommendations
+getData(eval_sets, "unknown") # set with the items used to test the recommendations
+
+qplot(rowCounts(getData(eval_sets, "unknown"))) + 
+  geom_histogram(binwidth = 10) + 
+  ggtitle("unknown items by the users")
+```
+The above image displays the unknown items by the users, which varies a lot.
+
+### Bootstrapping the data
+Bootstrapping is another approach to split the data. The same user can be sampled more than once and, if the training set has the same size as it did earlier, 
+there will be more users in the test set.
+
+```{r bootstrap, message=FALSE, warning=FALSE}
+eval_sets <- evaluationScheme(data = ratings_movies, 
+                              method = "bootstrap", 
+                              train = percentage_training, 
+                              given = items_to_keep,
+                              goodRating = rating_threshold, 
+                              k = n_eval)
+
+table_train <- table(eval_sets@runsTrain[[1]])
+n_repetitions <- factor(as.vector(table_train))
+qplot(n_repetitions) + 
+  ggtitle("Number of repetitions in the training set")
+```
+The above chart shows that most of the users have been sampled fewer than four times.
+
+### Using cross-validation to validate models
+
+The k-fold cross-validation approach is the most accurate one, although it's computationally heavier.
+
+Using this approach, we split the data into some chunks, take a chunk out as the test set, and evaluate the accuracy. Then, we can do the same with each other chunk and compute the average accuracy.
+
+```{r k-fold, message=FALSE, warning=FALSE}
+n_fold <- 4
+eval_sets <- evaluationScheme(data = ratings_movies, 
+                              method = "cross-validation",
+                              k = n_fold, 
+                              given = items_to_keep, 
+                              goodRating = rating_threshold)
+size_sets <- sapply(eval_sets@runsTrain, length)
+size_sets
+```
+
+Using 4-fold approach, we get four sets of the same size 315.
+
+## Evaluating the ratings
+
+We use the k-fold approach for evaluation. 
+
+First, re-define the evaluation sets, build IBCF model and create a matrix with predicted ratings.
+
+```{r eval_ratings, message=FALSE, warning=FALSE, echo=FALSE}
+eval_sets <- evaluationScheme(data = ratings_movies, 
+                              method = "cross-validation",
+                              k = n_fold, 
+                              given = items_to_keep, 
+                              goodRating = rating_threshold)
+
+model_to_evaluate <- "IBCF"
+model_parameters <- NULL
+
+eval_recommender <- Recommender(data = getData(eval_sets, "train"),
+                                method = model_to_evaluate, 
+                                parameter = model_parameters)
+
+items_to_recommend <- 10
+eval_prediction <- predict(object = eval_recommender, 
+                           newdata = getData(eval_sets, "known"), 
+                           n = items_to_recommend, 
+                           type = "ratings")
+
+qplot(rowCounts(eval_prediction)) + 
+  geom_histogram(binwidth = 10) +
+  ggtitle("Distribution of movies per user")
+```
+
+The above image displays the distribution of movies per user in the matrix of predicted ratings.
+
+Now, compute the accuracy measures for each user. Most of the RMSEs (Root mean square errors) are in the range of 0.5 to 1.8:
+
+```{r acc, message=FALSE,  warning=FALSE, echo=FALSE}
+eval_accuracy <- calcPredictionAccuracy(x = eval_prediction, 
+                                        data = getData(eval_sets, "unknown"), 
+                                        byUser = TRUE)
+head(eval_accuracy)
+
+qplot(eval_accuracy[, "RMSE"]) + 
+  geom_histogram(binwidth = 0.1) +
+  ggtitle("Distribution of the RMSE by user")
+```
+
+In order to have a performance index for the whole model, specify *byUser* as FALSE and compute the average indices:
+
+```{r acc_IBCF, message=FALSE,  warning=FALSE, echo=FALSE}
+eval_accuracy <- calcPredictionAccuracy(x = eval_prediction, 
+                                        data = getData(eval_sets, "unknown"), 
+                                        byUser = FALSE) 
+eval_accuracy
+```
+
+The measures of accuracy are useful to compare the performance of different models on the same data.
+
+## Evaluating the recommendations
+
+Another way to measure accuracies is by comparing the recommendations with
+the purchases having a positive rating. For this, we can make use of a prebuilt
+*evaluate* function in *recommenderlab* library. The function evaluate the recommender performance depending on the number *n* of items to recommend to each user. Use *n* as a sequence n = seq(10, 100, 10). The first rows of the resulting performance matrix is presented below:
+
+```{r eval_recomms, message=FALSE, warning=FALSE, echo=FALSE}
+results <- evaluate(x = eval_sets, 
+                    method = model_to_evaluate, 
+                    n = seq(10, 100, 10))
+
+head(getConfusionMatrix(results)[[1]])
+```
+
+In order to have a look at all the splits at the same time, sum up the indices of columns TP, FP, FN and TN:
+
+```{r conf_matrix_whole, message=FALSE, warning=FALSE, echo=FALSE}
+columns_to_sum <- c("TP", "FP", "FN", "TN")
+indices_summed <- Reduce("+", getConfusionMatrix(results))[, columns_to_sum]
+head(indices_summed)
+```
+
+## Comparing models
+
+In order to compare different models, I define them as a following list:
+
+* Item-based collaborative filtering, using the Cosine as the distance function
+* Item-based collaborative filtering, using the Pearson correlation as the distance function
+* User-based collaborative filtering, using the Cosine as the distance function
+* User-based collaborative filtering, using the Pearson correlation as the distance function
+* Random recommendations to have a base line
+
+```{r define_diff_models, warning=FALSE, message=FALSE, echo=FALSE}
+models_to_evaluate <- list(
+IBCF_cos = list(name = "IBCF", 
+                param = list(method = "cosine")),
+IBCF_cor = list(name = "IBCF", 
+                param = list(method = "pearson")),
+UBCF_cos = list(name = "UBCF", 
+                param = list(method = "cosine")),
+UBCF_cor = list(name = "UBCF", 
+                param = list(method = "pearson")),
+random = list(name = "RANDOM", param=NULL)
+)
+```
+
+Then, I define a different set of numbers for recommended movies (n_recommendations <- c(1, 5, seq(10, 100, 10))), run and evaluate the models:
+
+```{r params, warning=FALSE, message=FALSE, echo=FALSE}
+n_recommendations <- c(1, 5, seq(10, 100, 10))
+list_results <- evaluate(x = eval_sets, 
+                         method = models_to_evaluate, 
+                         n = n_recommendations)
+
+sapply(list_results, class) == "evaluationResults"
+```
+
+The following table presents as an example the first rows of the performance evaluation matrix for the IBCF with Cosine distance:
+
+```{r ex_compare, warning=FALSE, message=FALSE, echo=FALSE}
+avg_matrices <- lapply(list_results, avg)
+head(avg_matrices$IBCF_cos[, 5:8])
+```
+
+## Identifying the most suitable model
+
+I compare the models by building a chart displaying their ROC curves and Precision/recall curves.
+
+```{r compare_models_roc, message=FALSE, warning=FALSE, echo=FALSE}
+plot(list_results, annotate = 1, legend = "topleft") 
+title("ROC curve")
+
+plot(list_results, "prec/rec", annotate = 1, legend = "bottomright")
+title("Precision-recall")
+```
+
+A good performance index is the area under the curve (AUC), that is, the area under
+the ROC curve. Even without computing it, the chart shows that the highest is UBCF
+with cosine distance, so it's the best-performing technique.
+
+The UBCF with cosine distance is still the top model. Depending on what is the main purpose of the system, an appropriate number of items to recommend should be defined.
+
+## Optimizing a numeric parameter
+
+IBCF takes account of the k-closest items. I will explore more values, ranging
+between 5 and 40, in order to tune this parameter:
+
+```{r optimize, message=FALSE, warning=FALSE}
+vector_k <- c(5, 10, 20, 30, 40)
+models_to_evaluate <- lapply(vector_k, function(k){
+  list(name = "IBCF",
+       param = list(method = "cosine", k = k))
+})
+names(models_to_evaluate) <- paste0("IBCF_k_", vector_k)
+```
+
+Now I build and evaluate the same IBCF/cosine models with different values of the k-closest items:
+
+```{r eval_optimized, message=FALSE, warning=FALSE, echo=FALSE}
+n_recommendations <- c(1, 5, seq(10, 100, 10))
+list_results <- evaluate(x = eval_sets, 
+                         method = models_to_evaluate, 
+                         n = n_recommendations)
+
+plot(list_results, annotate = 1, legend = "topleft") 
+title("ROC curve")
+
+plot(list_results, "prec/rec", annotate = 1, legend = "bottomright")
+title("Precision-recall")
+```
+
+Based on the ROC curve's plot, the k having the biggest AUC is 10. Another good candidate is 5, but it can never have a high TPR. This means that, even if we set a very high n value, the algorithm won't be able to recommend a big percentage of items that the user liked. The IBCF with k = 5 recommends only a few items similar to the purchases. Therefore, it can't be used to recommend many items.
+
+Based on the precision/recall plot, k should be set to 10 to achieve the highest recall. If we are more interested in the precision, we set k to 5.
